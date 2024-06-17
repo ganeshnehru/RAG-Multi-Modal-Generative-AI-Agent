@@ -34,13 +34,14 @@ with st.sidebar:
 
     st.subheader("About:")
     st.write("""
-    Agent-Nesh is a RAG-based multi-modal chatbot that utilizes:
+    Agent-Nesh is a RAG-based multi-modal generative AI chatbot that utilizes:
     - [Meta Llama 3](https://build.nvidia.com/explore/discover#llama3-70b)
     - [Microsoft Phi 3 Vision](https://build.nvidia.com/microsoft/phi-3-vision-128k-instruct)
     - [IBM Granite](https://build.nvidia.com/explore/discover#granite-34b-code-instruct)
     - [OpenAI Whisper](https://openai.com/research/whisper/)
 
-    from [Nvidia NIM](https://www.nvidia.com/en-us/ai/), to provide intelligent, context-aware responses to text, image, code, and voice inputs.
+    from [Nvidia NIM](https://www.nvidia.com/en-us/ai/), to provide intelligent, context-aware responses to text, image, code, and voice inputs. 
+    By leveraging these multimodal architectures, Agent-Nesh can understand and respond to a wide array of user queries.
     """)
     st.subheader("")
     st.subheader("")

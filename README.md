@@ -50,7 +50,7 @@ Generative agent/
 1. Clone the repository:
     ```sh
     git clone [https://github.com/your-username/agent-nesh.git](https://github.com/ganeshnehru/RAG-Multi-Modal-Generative-AI-Agent.git)
-    cd aRAG-Multi-Modal-Generative-AI-Agent
+    cd RAG-Multi-Modal-Generative-AI-Agent
     ```
 
 2. Create a virtual environment and activate it:

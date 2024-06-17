@@ -1,0 +1,22 @@
+python==3.10
+charset-normalizer
+langchain-nvidia-ai-endpoints
+langchain
+langchain-community
+unstructured
+faiss-cpu
+faiss-gpu # (for CUDA, ensure CUDA is properly installed)
+whisper
+sounddevice
+scipy
+numpy
+webrtcvad
+streamlit-autorefresh
+torch
+torchaudio
+stable-audio-tools
+sentencepiece
+conda-forge
+pynini
+pyaudio
+openai

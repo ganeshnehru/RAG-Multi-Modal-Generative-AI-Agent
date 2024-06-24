@@ -1,208 +1,212 @@
-import os
+
 import streamlit as st
-import pickle
-from langchain.memory import ConversationBufferMemory
-from langchain.document_loaders import DirectoryLoader
-from langchain.vectorstores import FAISS
-from langchain.text_splitter import CharacterTextSplitter
-from langchain_core.messages import HumanMessage
-from dotenv import load_dotenv
-from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
-from chains.language_assistant import LanguageAssistant
-from chains.code_assistant import CodeAssistant
-from chains.vision_assistant import VisionAssistant
+from PIL import Image
+from chains.assistant_router import AssistantRouter
+import time
 from chains.models.whisper_asr import WhisperASR
+from datetime import datetime
+import uuid
 
-# Load environment variables
-load_dotenv()
+# Initialize the AssistantRouter
+router = AssistantRouter()
 
-# Set environment variable to avoid conflicts
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-# Set Streamlit page config
 st.set_page_config(page_title="Agent-Nesh 🤖", layout="wide")
 
-# Page header
-# st.markdown("<h1 style='text-align: left;'>Convo w/ Agent-Nesh! 🤖</h1>", unsafe_allow_html=True)
-
-# Sidebar for settings and file upload
-with st.sidebar:
-    import streamlit as st
-
-    st.markdown("<h1 style='text-align: center; font-size: 50px;'>Agent-Nesh 🤖</h1>", unsafe_allow_html=True)
-    st.subheader("")
-
-    st.subheader("About:")
-    st.write("""
-    Agent-Nesh is a RAG-based multi-modal generative AI chatbot that utilizes:
-    - [Meta Llama 3](https://build.nvidia.com/explore/discover#llama3-70b)
-    - [Microsoft Phi 3 Vision](https://build.nvidia.com/microsoft/phi-3-vision-128k-instruct)
-    - [IBM Granite](https://build.nvidia.com/explore/discover#granite-34b-code-instruct)
-    - [OpenAI Whisper](https://openai.com/research/whisper/)
-
-    from [Nvidia NIM](https://www.nvidia.com/en-us/ai/), to provide intelligent, context-aware responses to text, image, code, and voice inputs. 
-    By leveraging these multimodal architectures, Agent-Nesh can understand and respond to a wide array of user queries.
-    """)
-    st.subheader("")
-    st.subheader("")
-
-    st.subheader("Upload Files")
-    uploaded_image = None
-
-    uploaded_files = st.file_uploader("Input documents/images for analysis:", type=["png", "jpg", "jpeg", "pdf", "txt"],
-                                      accept_multiple_files=True)
-
-    DOCS_DIR = os.path.abspath("./uploaded_docs")
-    os.makedirs(DOCS_DIR, exist_ok=True)
-
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            if uploaded_file.type.startswith("image/"):
-                uploaded_image = uploaded_file
-            else:
-                file_path = os.path.join(DOCS_DIR, uploaded_file.name)
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.read())
-                st.success(f"File {uploaded_file.name} uploaded successfully!")
-
-    st.subheader("")
-    st.subheader("")
-
-    use_existing_vector_store = st.radio("Use existing vector store if available", ["Yes", "No"], horizontal=True)
-
-# Function to load and process documents
-def load_and_process_documents(docs_dir, vector_store_path):
-    raw_documents = DirectoryLoader(docs_dir).load()
-    if raw_documents:
-        text_splitter = CharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
-        documents = text_splitter.split_documents(raw_documents)
-        vectorstore = FAISS.from_documents(documents, document_embedder)
-        with open(vector_store_path, "wb") as f:
-            pickle.dump(vectorstore, f)
-        return vectorstore
-    else:
-        return None
-
-# Initialize embedding models
-document_embedder = NVIDIAEmbeddings(model="NV-Embed-QA", model_type="passage")
-query_embedder = NVIDIAEmbeddings(model="NV-Embed-QA", model_type="query")
-
-# Vector database store
-vector_store_path = "vectorstore.pkl"
-vectorstore = None
-
-if use_existing_vector_store == "Yes" and os.path.exists(vector_store_path):
-    with open(vector_store_path, "rb") as f:
-        vectorstore = pickle.load(f)
-    st.sidebar.success("Existing vector store loaded successfully.")
-else:
-    with st.spinner("Processing documents..."):
-        vectorstore = load_and_process_documents(DOCS_DIR, vector_store_path)
-    st.sidebar.success("Vector store created and saved.")
-
-# Initialize memory
-memory = ConversationBufferMemory(return_messages=True)
-
-# Initialize the assistants
-language_assistant = LanguageAssistant(model_name="meta/llama3-70b-instruct")
-code_assistant = CodeAssistant(model_name="ibm/granite-34b-code-instruct")
-vision_assistant = VisionAssistant(model_name="microsoft/phi-3-vision-128k-instruct")
-
-# Initialize WhisperASR
+# Initialize the WhisperASR
 whisper_asr = WhisperASR(model_name="base")
 
-# Function to determine which assistant to use
-def route_input(user_input, uploaded_image=None):
-    code_keywords = ["code", "programming", "debug", "function", "class", "script", "algorithm"]
-    if uploaded_image:
-        return vision_assistant, "Phi"
-    elif any(keyword in user_input.lower() for keyword in code_keywords):
-        return code_assistant, "Granite"
-    return language_assistant, "Llama"
+st.title("Ask me anything!")
 
-# Main Content
-with st.container():
-    chat_container = st.container()
+# Initialize chat history
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    with chat_container:
-        # Chat interface
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
+# Sidebar for file upload and ASR
+with st.sidebar:
+    st.markdown("<h1 style='text-align: center; font-size: 50px;'>Agent-Nesh 🤖</h1>", unsafe_allow_html=True)
+    # st.subheader("About:")
+    # st.write("""
+    # Agent-Nesh is a RAG-based multi-modal generative AI chatbot that utilizes:
+    # - [Meta Llama 3](https://build.nvidia.com/explore/discover#llama3-70b)
+    # - [Microsoft Phi 3 Vision](https://build.nvidia.com/microsoft/phi-3-vision-128k-instruct)
+    # - [IBM Granite](https://build.nvidia.com/explore/discover#granite-34b-code-instruct)
+    # - [OpenAI Whisper](https://openai.com/research/whisper/)
+    #
+    # Developed using [Nvidia NIM](https://www.nvidia.com/en-us/ai/), Agent-Nesh provides intelligent, context-aware responses to text, image, code, and voice inputs.
+    # """)
 
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    st.markdown("---")
+    st.subheader("Upload Files")
 
-    input_container = st.container()
+    # File upload section
+    uploaded_file = st.file_uploader("Upload File", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
 
-    with input_container:
-        st.subheader("")
-        col1, col2 = st.columns([1, 8], gap="small")
+    if uploaded_file:
+        image = Image.open(uploaded_file)
+        image_path = f"uploaded_image_{st.session_state.session_id}.png"
+        image.save(image_path)
 
-        with col1:
-            # Add a button for voice input with only a speech bubble icon emoji
-            if st.button("💬 Voice Input"):
-                with st.spinner("Listening..."):
-                    user_input = whisper_asr.run()
-                    st.success("Listening complete!")
+        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+    st.markdown("---")
 
-        with col2:
-            # Add a text input for manual user input
-            text_input = st.chat_input("Enter your query here...")
+    # ASR button section
+    if st.button("Record and Transcribe Audio"):
+        with st.spinner("Recording..."):
+            try:
+                transcription = whisper_asr.run()
+                st.session_state.transcription = transcription
+            except Exception as e:
+                st.error(f"Error during transcription: {e}")
 
-        if text_input:
-            user_input = text_input
+# Display chat messages from history on app rerun
+for message in sorted(st.session_state.messages, key=lambda x: x['timestamp']):
+    with st.chat_message(message["role"]):
+        if message["role"] == "assistant" and isinstance(message["content"], dict):
+            if "code" in message["content"]:
+                st.code(message["content"]["code"], language=message["content"]["language"])
+            else:
+                st.markdown(message["content"]["text"])
+        else:
+            st.markdown(message["content"])
+        if message["role"] == "assistant":
+            st.markdown(f"*Model Used: {message['assistant_name']}*")
 
-if 'user_input' not in locals():
-    user_input = ""
+# Handle ASR transcription after processing
+if "transcription" in st.session_state:
+    transcription = st.session_state.pop("transcription")
 
-if user_input or uploaded_image:
-    # Display user message in the chat
-    if user_input:
-        with chat_container:
-            with st.chat_message("user"):
-                st.markdown(user_input)
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    # Display user transcription in chat message container
+    with st.chat_message("user"):
+        st.markdown(transcription)
 
-    assistant, model_name = route_input(user_input, uploaded_image)
+    # Check if there is an uploaded image
+    try:
+        if uploaded_file:
+            combined_input = transcription
+            response, assistant_name = router.route_input(combined_input, image_path)
+        else:
+            response, assistant_name = router.route_input(transcription)
+    except Exception as e:
+        st.error(f"Error during processing: {e}")
+        response = {"content": "Sorry, an error occurred while processing your request.", "assistant_name": "Error"}
 
-    if assistant == vision_assistant and uploaded_image:
-        # Display the uploaded image with a fixed width
-        with chat_container:
-            with st.chat_message("user"):
-                st.image(uploaded_image, caption="Uploaded Image", use_column_width=False, width=700)
+    # Display assistant response in chat message container
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        response_content = response if isinstance(response, str) else response.get("content", "")
+        if "```" in response_content:
+            parts = response_content.split("```")
+            for i, part in enumerate(parts):
+                if i % 2 == 0:
+                    full_response += part + " "
+                    response_placeholder.markdown(full_response)
+                else:
+                    language, code = part.strip().split("\n", 1)
+                    st.code(code, language=language.strip())
+                time.sleep(0.05)
+        else:
+            for word in response_content.split():
+                full_response += word + " "
+                response_placeholder.markdown(full_response)
+                time.sleep(0.05)
+        st.markdown(f"*Model Used: {assistant_name}*")
 
-        image_b64 = assistant.process_image(uploaded_image)
-        augmented_user_input = f"Image and question: {user_input}" if user_input else "Analyze this image"
-        input_message = [
-            {"type": "text", "text": augmented_user_input},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
-        ]
+    # Add assistant response to chat history
+    st.session_state.messages.append({"role": "user", "content": transcription, "timestamp": datetime.now().isoformat()})
+    st.session_state.messages.append(
+        {"role": "assistant", "content": response_content, "assistant_name": assistant_name, "timestamp": datetime.now().isoformat()})
 
-        with chat_container:
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                full_response = ""
+# Accept user input
+text_input = st.chat_input("Enter your message:")
 
-                for response in assistant.chat_model.stream([HumanMessage(content=input_message)]):
-                    full_response += response.content
-                    message_placeholder.markdown(full_response + "▌")
-                message_placeholder.markdown(full_response, unsafe_allow_html=True)
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+# Handle input and file upload processing
+if uploaded_file and text_input:
+    combined_input = text_input
 
-    else:
-        retriever = vectorstore.as_retriever()
-        docs = retriever.get_relevant_documents(user_input)
-        context = "\n\n".join(doc.page_content for doc in docs)
-        augmented_user_input = f"Context: {context}\n\nQuestion: {user_input}\n"
+    # Process input with image
+    try:
+        response, assistant_name = router.route_input(combined_input, image_path)
+    except Exception as e:
+        st.error(f"Error during processing: {e}")
+        response = {"content": "Sorry, an error occurred while processing your request.", "assistant_name": "Error"}
 
-        with chat_container:
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                full_response = ""
+    # Display user image and assistant response
+    with st.chat_message("user"):
+        st.markdown(combined_input)
 
-                for response in assistant.chain.stream({"input": augmented_user_input}):
-                    full_response += response
-                    message_placeholder.markdown(full_response + "▌")
-                message_placeholder.markdown(full_response, unsafe_allow_html=True)
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        response_content = response if isinstance(response, str) else response.get("content", "")
+        if "```" in response_content:
+            parts = response_content.split("```")
+            for i, part in enumerate(parts):
+                if i % 2 == 0:
+                    full_response += part + " "
+                    response_placeholder.markdown(full_response)
+                else:
+                    language, code = part.strip().split("\n", 1)
+                    st.code(code, language=language.strip())
+                time.sleep(0.05)
+        else:
+            for word in response_content.split():
+                full_response += word + " "
+                response_placeholder.markdown(full_response)
+                time.sleep(0.05)
+        st.markdown(f"*Model Used: {assistant_name}*")
+
+    # Add assistant response to chat history
+    st.session_state.messages.append({"role": "user", "content": combined_input, "timestamp": datetime.now().isoformat()})
+    st.session_state.messages.append(
+        {"role": "assistant", "content": response_content, "assistant_name": assistant_name, "timestamp": datetime.now().isoformat()})
+
+    # Manually update the conversation memory for VisionAssistant
+    if assistant_name == "VisionAssistant":
+        router.vision_assistant.add_to_memory(combined_input, response_content)
+
+# Handle text input without image
+elif text_input:
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": text_input, "timestamp": datetime.now().isoformat()})
+
+    # Display user message in chat message container
+    with st.chat_message("user"):
+        st.markdown(text_input)
+
+    # Process input without image
+    try:
+        response, assistant_name = router.route_input(text_input)
+    except Exception as e:
+        st.error(f"Error during processing: {e}")
+        response = {"content": "Sorry, an error occurred while processing your request.", "assistant_name": "Error"}
+
+    # Display assistant response in chat message container
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        response_content = response if isinstance(response, str) else response.get("content", "")
+
+        # Check if the response contains code blocks
+        if "```" in response_content:
+            parts = response_content.split("```")
+            for i, part in enumerate(parts):
+                if i % 2 == 0:
+                    full_response += part + " "
+                    response_placeholder.markdown(full_response)
+                else:
+                    language, code = part.strip().split("\n", 1)
+                    st.code(code, language=language.strip())
+                time.sleep(0.05)
+        else:
+            for word in response_content.split():
+                full_response += word + " "
+                response_placeholder.markdown(full_response)
+                time.sleep(0.05)
+        st.markdown(f"*Model Used: {assistant_name}*")
+
+    # Add assistant response to chat history
+    st.session_state.messages.append(
+        {"role": "assistant", "content": response_content, "assistant_name": assistant_name, "timestamp": datetime.now().isoformat()})

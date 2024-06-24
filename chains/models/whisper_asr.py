@@ -68,10 +68,13 @@
 #         print("Transcription:")
 #         print(text)
 #         return text
-#
-# # if __name__ == "__main__":
-# #     asr_system = WhisperASR(model_name="base")
-# #     asr_system.run()
+
+# if __name__ == "__main__":
+#     asr_system = WhisperASR(model_name="base")
+#     asr_system.run()
+
+
+
 
 
 
@@ -86,7 +89,7 @@ class WhisperASR:
     def __init__(self, model_name="base"):
         self.model = whisper.load_model(model_name)
         self.vad = webrtcvad.Vad()
-        self.vad.set_mode(1)  # Set aggressiveness mode (0-3)
+        self.vad.set_mode(2)  # Set aggressiveness mode (0-3)
 
     def record_audio(self, samplerate=16000, padding_duration_ms=2000, chunk_duration_ms=30):
         chunk_size = int(samplerate * chunk_duration_ms / 1000)

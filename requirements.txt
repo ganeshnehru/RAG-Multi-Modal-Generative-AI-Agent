@@ -20,3 +20,8 @@ conda-forge
 pynini
 pyaudio
 openai
+sentence-transformers
+py3-tts
+pyttsx3
+noisereduce
+pdfminer
